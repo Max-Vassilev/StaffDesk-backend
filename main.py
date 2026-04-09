@@ -32,6 +32,14 @@ class UserCreate(BaseModel):
     email: str
     password: str
 
+class RegisterResponse(BaseModel):
+    id: int
+    email: str
+    access_token: str
+    token_type: str
+
+    model_config = {"from_attributes": True}
+
 class UserResponse(BaseModel):
     id: int
     email: str
@@ -90,7 +98,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@app.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 def register(user: UserCreate, db: Session = Depends(get_database)):
     if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User with this email already exists")
@@ -98,7 +106,13 @@ def register(user: UserCreate, db: Session = Depends(get_database)):
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
-    return db_user
+    token = create_access_token({"sub": db_user.email})
+    return {
+        "id": db_user.id,
+        "email": db_user.email,
+        "access_token": token,
+        "token_type": "bearer"
+    }
 
 @app.post("/token", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_database)):
@@ -111,14 +125,3 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 @app.get("/home", response_model=UserResponse)
 def home(user: User = Depends(get_current_user)):
     return user
-
-@app.delete("/users/{user_id}")
-def delete_user(user_id: int, current: User = Depends(get_current_user), db: Session = Depends(get_database)):
-    if user_id != current.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to delete this user")
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-    db.delete(user)
-    db.commit()
-    return {"message": "User deleted successfully"}
